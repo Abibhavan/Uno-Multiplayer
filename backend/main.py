@@ -1,9 +1,30 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from room_manager import create_room, join_room, can_start_game
+from pathlib import Path
 import random
 import string
 
 app = FastAPI()
+
+@app.get("/")
+def root():
+    return RedirectResponse(url="/client/index.html")
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+app.mount(
+    "/client",
+    StaticFiles(directory=BASE_DIR / "client"),
+    name="client"
+)
+
+app.mount(
+    "/libs",
+    StaticFiles(directory=BASE_DIR / "libs"),
+    name="libs"
+)
 
 connections = {}   # playerId -> websocket
 player_rooms = {}  # playerId -> roomCode
