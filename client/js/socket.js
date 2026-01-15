@@ -7,7 +7,23 @@ if (!playerId) {
 }
 
 // -------- WebSocket --------
-const ws = new WebSocket(`ws://localhost:8000/ws?playerId=${playerId}`);
+const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+const ws = new WebSocket(
+  `${protocol}://${window.location.host}/ws?playerId=${playerId}`
+);
+console.log(ws)
+
+ws.onopen = () => {
+  console.log("WebSocket CONNECTED");
+};
+
+ws.onerror = (e) => {
+  console.error("WebSocket ERROR", e);
+};
+
+ws.onclose = () => {
+  console.warn("WebSocket CLOSED");
+};
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -18,19 +34,23 @@ ws.onmessage = (event) => {
   }
 
   if (data.type === "lobby_update") {
-  localStorage.setItem("roomData", JSON.stringify(data.room));
+    localStorage.setItem("roomData", JSON.stringify(data.room));
 
-  // If not already in lobby, redirect
-  if (!window.location.pathname.includes("lobby.html")) {
-    window.location.href = "lobby.html";
-    return;
+    // If not already in lobby, redirect
+    if (!window.location.pathname.includes("lobby.html")) {
+      window.location.href = "lobby.html";
+      return;
+    }
+
+    renderLobby(data.room);
   }
 
-  renderLobby(data.room);
-}
-
   if (data.type === "game_started") {
-    alert("Game starting (Phaser comes next)");
+    // If not already in lobby, redirect
+    if (!window.location.pathname.includes("main-game.html")) {
+      window.location.href = "main-game.html";
+      return;
+    }
   }
 
   if (data.type === "error") {
@@ -39,17 +59,19 @@ ws.onmessage = (event) => {
 };
 
 // -------- Actions --------
-function createRoom() {
+window.createRoom = ()=> {
   ws.send(JSON.stringify({ type: "create_room" }));
 }
 
-function joinRoom() {
+window.joinRoom = ()=> {
   const code = prompt("Enter Room Code");
   if (!code) return;
-  ws.send(JSON.stringify({
-    type: "join_room",
-    room_code: code.toUpperCase()
-  }));
+  ws.send(
+    JSON.stringify({
+      type: "join_room",
+      room_code: code.toUpperCase(),
+    })
+  );
 }
 
 // -------- Lobby Rendering --------
@@ -60,7 +82,7 @@ function renderLobby(room) {
   const list = document.getElementById("players");
   list.innerHTML = "";
 
-  room.players.forEach(pid => {
+  room.players.forEach((pid) => {
     const li = document.createElement("li");
     li.textContent = pid === room.host ? `${pid} (Host)` : pid;
     list.appendChild(li);
