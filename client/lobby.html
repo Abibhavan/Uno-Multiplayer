@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lobby</title>
+</head>
+<body>
+
+<h2>Room Code: <span id="code"></span></h2>
+<ul id="players"></ul>
+
+<button id="startBtn" onclick="startGame()" disabled>
+  Start Game
+</button>
+
+<script src="js/socket.js"></script>
+<script>
+const room = JSON.parse(localStorage.getItem("roomData"));
+renderLobby(room);
+</script>
+
+</body>
+</html>
