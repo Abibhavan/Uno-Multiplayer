@@ -1,184 +1,144 @@
-from deck import create_deck, draw_cards
 import random
+from deck import create_deck, draw_cards
 
-games = {}  # room_code -> game_state
+games = {}
 
 
 def start_game(room_code, players):
-    """
-    Initializes a new UNO game for a room.
-    """
     deck = create_deck()
-    random.shuffle(deck)
+    hands = {p: [] for p in players}
 
-    hands = {player: [] for player in players}
-
-    # Deal 7 cards to each player
     for _ in range(7):
-        for player in players:
-            hands[player].append(deck.pop())
+        for p in players:
+            hands[p].append(deck.pop())
 
-    # Pick first non-wild card
     while True:
-        first_card = deck.pop()
-        if first_card["color"] != "wild":
+        first = deck.pop()
+        if first["color"] != "wild":
             break
-        deck.insert(0, first_card)
+        deck.insert(0, first)
 
-    game_state = {
-        "room_code": room_code,
+    game = {
+        "room": room_code,
         "players": players,
         "hands": hands,
         "deck": deck,
-        "discard_pile": [first_card],
+        "discard_pile": [first],
         "current_player": players[0],
-        "direction": 1,  # 1 = clockwise, -1 = counter
-        "current_color": first_card["color"],
+        "direction": 1,
+        "current_color": first["color"],
         "winner": None
     }
 
-    games[room_code] = game_state
-    return serialize_game_state(game_state)
+    games[room_code] = game
+    return serialize(game)
 
 
-# -------------------------
-# CORE GAME ACTIONS
-# -------------------------
-
-def play_card(room_code, player_id, card, chosen_color=None):
-    game = games.get(room_code)
+def play_card(room, player, card, chosen_color=None):
+    game = games.get(room)
     if not game:
-        return {"error": "Game not found"}
+        return error("Game not found")
 
     if game["winner"]:
-        return {"error": "Game already finished"}
+        return error("Game finished")
 
-    if player_id != game["current_player"]:
-        return {"error": "Not your turn"}
+    if player != game["current_player"]:
+        return error("Not your turn")
 
-    if card not in game["hands"][player_id]:
-        return {"error": "Card not in hand"}
+    if card not in game["hands"][player]:
+        return error("Card not in hand")
 
-    top_card = game["discard_pile"][-1]
+    top = game["discard_pile"][-1]
 
-    if not is_valid_move(card, top_card, game["current_color"]):
-        return {"error": "Invalid move"}
+    if not valid(card, top, game["current_color"]):
+        return error("Invalid move")
 
-    game["hands"][player_id].remove(card)
+    game["hands"][player].remove(card)
     game["discard_pile"].append(card)
 
-    apply_card_effect(game, card, chosen_color)
-    check_winner(game, player_id)
+    apply_effect(game, card, chosen_color)
 
-    if not game["winner"]:
+    if not game["hands"][player]:
+        game["winner"] = player
+    else:
         advance_turn(game)
 
-    return serialize_game_state(game)
+    return serialize(game)
 
 
-def draw_card(room_code, player_id):
-    game = games.get(room_code)
-    if not game or player_id != game["current_player"]:
-        return {"error": "Invalid draw"}
+def draw_card(room, player):
+    game = games.get(room)
+    if player != game["current_player"]:
+        return error("Not your turn")
 
-    card = game["deck"].pop()
-    game["hands"][player_id].append(card)
-
+    draw_cards(game, player, 1)
     advance_turn(game)
-    return serialize_game_state(game)
+    return serialize(game)
 
 
-# -------------------------
-# VALIDATION & RULES
-# -------------------------
+# ---------- RULES ----------
 
-def is_valid_move(card, top_card, current_color):
+def valid(card, top, current_color):
     if card["color"] == "wild":
         return True
-
-    return (
-        card["color"] == current_color or
-        card["value"] == top_card["value"]
-    )
+    return card["color"] == current_color or card["value"] == top["value"]
 
 
-def apply_card_effect(game, card, chosen_color):
-    value = card["value"]
+def apply_effect(game, card, chosen_color):
+    val = card["value"]
 
     if card["color"] == "wild":
         game["current_color"] = chosen_color
+        if val == "wild_draw_5":
+            victim = next_player(game)
+            draw_cards(game, victim, 5)
+            skip(game)
+        return
 
-        if value == "wild_draw_4":
-            next_player = get_next_player(game)
-            draw_cards(game, next_player, 4)
-            skip_turn(game)
+    game["current_color"] = card["color"]
 
-    elif value == "skip":
-        skip_turn(game)
-
-    elif value == "reverse":
+    if val == "skip":
+        skip(game)
+    elif val == "reverse":
         game["direction"] *= -1
-
-        # Special case: 2 players → acts like skip
         if len(game["players"]) == 2:
-            skip_turn(game)
-
-    elif value == "draw_2":
-        next_player = get_next_player(game)
-        draw_cards(game, next_player, 2)
-        skip_turn(game)
-
-    else:
-        game["current_color"] = card["color"]
+            skip(game)
+    elif val == "draw_2":
+        victim = next_player(game)
+        draw_cards(game, victim, 2)
+        skip(game)
 
 
-# -------------------------
-# TURN HANDLING
-# -------------------------
+# ---------- TURN HANDLING ----------
 
 def advance_turn(game):
     idx = game["players"].index(game["current_player"])
-    next_idx = (idx + game["direction"]) % len(game["players"])
-    game["current_player"] = game["players"][next_idx]
+    game["current_player"] = game["players"][(idx + game["direction"]) % len(game["players"])]
 
 
-def skip_turn(game):
+def skip(game):
     advance_turn(game)
 
 
-def get_next_player(game):
+def next_player(game):
     idx = game["players"].index(game["current_player"])
-    next_idx = (idx + game["direction"]) % len(game["players"])
-    return game["players"][next_idx]
+    return game["players"][(idx + game["direction"]) % len(game["players"])]
 
 
-# -------------------------
-# WIN CHECK
-# -------------------------
+# ---------- SERIALIZATION ----------
 
-def check_winner(game, player_id):
-    if not game["hands"][player_id]:
-        game["winner"] = player_id
-
-
-# -------------------------
-# SERIALIZATION
-# -------------------------
-
-def serialize_game_state(game):
-    """
-    Removes private information before sending to frontend.
-    """
+def serialize(game):
     return {
-        "room_code": game["room_code"],
+        "room": game["room"],
         "players": game["players"],
-        "hands_count": {
-            p: len(game["hands"][p]) for p in game["players"]
-        },
-        "your_hand": game["hands"],
+        "hands_count": {p: len(game["hands"][p]) for p in game["players"]},
         "top_card": game["discard_pile"][-1],
         "current_player": game["current_player"],
         "current_color": game["current_color"],
         "direction": game["direction"],
         "winner": game["winner"]
     }
+
+
+def error(msg):
+    return {"error": msg}

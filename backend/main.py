@@ -1,106 +1,96 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from room_manager import (
-    create_room,
-    join_room,
-    get_room,
-    remove_player
-)
-from game_logic import (
-    start_game,
-    play_card,
-    draw_card
-)
+from connection_manager import ConnectionManager
+from room_manager import create_room, join_room, start_room, rooms
+from game_logic import play_card, draw_card
 
 app = FastAPI()
+manager = ConnectionManager()
 
-# websocket -> player_id
-connections = {}
 
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws.accept()
-
-    player_id = f"p_{id(ws)}"
-    connections[ws] = player_id
+@app.websocket("/ws/{player_id}")
+async def websocket_endpoint(websocket: WebSocket, player_id: str):
+    await manager.connect(player_id, websocket)
 
     try:
         while True:
-            message = await ws.receive_json()
-            msg_type = message.get("type")
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
 
-            # 1️⃣ CREATE ROOM
-            if msg_type == "create_room":
-                room = create_room(player_id)
-                await ws.send_json({
-                    "type": "room_created",
-                    "room": room
+            # ---------- ROOM ----------
+            if msg_type == "CREATE_ROOM":
+                code = create_room(player_id)
+                room = rooms[code]
+
+                await manager.send(player_id, {
+                    "type": "ROOM_UPDATE",
+                    "room": {
+                        "code": code,
+                        "players": room["players"],
+                        "host": room["host"]
+                    }
                 })
 
-            # 2️⃣ JOIN ROOM
-            elif msg_type == "join_room":
-                room_code = message.get("room_code")
-                room = join_room(room_code, player_id)
+            elif msg_type == "JOIN_ROOM":
+                code = data["room_code"]
+                success = join_room(code, player_id)
 
-                if not room:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": "Room not found"
+                if not success:
+                    await manager.send(player_id, {
+                        "type": "ERROR",
+                        "message": "Cannot join room"
                     })
                     continue
 
-                # notify all players in room
-                for conn, pid in connections.items():
-                    if pid in room["players"]:
-                        await conn.send_json({
-                            "type": "lobby_update",
-                            "room": room
-                        })
+                room = rooms[code]
+                await manager.broadcast(room["players"], {
+                    "type": "ROOM_UPDATE",
+                    "room": {
+                        "code": code,
+                        "players": room["players"],
+                        "host": room["host"]
+                    }
+                })
 
-            # 3️⃣ START GAME (host only)
-            elif msg_type == "start_game":
-                room_code = message.get("room_code")
-                game_state = start_game(room_code)
+            elif msg_type == "START_GAME":
+                code = data["room_code"]
+                state = start_room(code)
+                players = rooms[code]["players"]
 
-                room = get_room(room_code)
-                for conn, pid in connections.items():
-                    if pid in room["players"]:
-                        await conn.send_json({
-                            "type": "game_started",
-                            "game": game_state
-                        })
+                await manager.broadcast(players, {
+                    "type": "GAME_STATE",
+                    "state": state
+                })
 
-            # 4️⃣ PLAY CARD
-            elif msg_type == "play_card":
-                result = play_card(
-                    room_code=message["room_code"],
-                    player_id=player_id,
-                    card_id=message["card_id"]
+            # ---------- GAME ----------
+            elif msg_type == "PLAY_CARD":
+                state = play_card(
+                    data["room_code"],
+                    player_id,
+                    data["card"],
+                    data.get("chosen_color")
                 )
 
-                room = get_room(message["room_code"])
-                for conn, pid in connections.items():
-                    if pid in room["players"]:
-                        await conn.send_json({
-                            "type": "game_update",
-                            "game": result
-                        })
+                if "error" in state:
+                    await manager.send(player_id, {
+                        "type": "ERROR",
+                        "message": state["error"]
+                    })
+                    continue
 
-            # 5️⃣ DRAW CARD
-            elif msg_type == "draw_card":
-                result = draw_card(
-                    room_code=message["room_code"],
-                    player_id=player_id
-                )
+                players = rooms[data["room_code"]]["players"]
+                await manager.broadcast(players, {
+                    "type": "GAME_STATE",
+                    "state": state
+                })
 
-                room = get_room(message["room_code"])
-                for conn, pid in connections.items():
-                    if pid in room["players"]:
-                        await conn.send_json({
-                            "type": "game_update",
-                            "game": result
-                        })
+            elif msg_type == "DRAW_CARD":
+                state = draw_card(data["room_code"], player_id)
+                players = rooms[data["room_code"]]["players"]
+
+                await manager.broadcast(players, {
+                    "type": "GAME_STATE",
+                    "state": state
+                })
 
     except WebSocketDisconnect:
-        remove_player(player_id)
-        del connections[ws]
-        print(f"{player_id} disconnected")
+        manager.disconnect(player_id)

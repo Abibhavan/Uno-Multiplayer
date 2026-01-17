@@ -1,43 +1,37 @@
-import uuid
 import random
 
-COLORS = ["red", "green", "blue", "yellow"]
-NUMBER_VALUES = list(range(10))
-ACTION_TYPES = ["skip", "reverse", "draw_two"]
+COLORS = ["red", "yellow", "green", "blue"]
+VALUES = [str(i) for i in range(10)] + ["skip", "reverse", "draw_2"]
+WILD_VALUES = ["wild", "wild_draw_4"]
 
-def generate_card(color, card_type, value=None):
-    return {
-        "id": f"c_{uuid.uuid4().hex[:8]}",
-        "color": color,
-        "type": card_type,
-        "value": value
-    }
 
-def generate_uno_deck():
+def create_deck():
     deck = []
 
-    # Colored cards
     for color in COLORS:
-        # One zero
-        deck.append(generate_card(color, "number", 0))
+        deck.append({"color": color, "value": "0"})
 
-        # Two of each 1–9
-        for num in range(1, 10):
-            deck.append(generate_card(color, "number", num))
-            deck.append(generate_card(color, "number", num))
+        for value in VALUES[1:]:
+            deck.append({"color": color, "value": value})
+            deck.append({"color": color, "value": value})
 
-        # Action cards (2 each)
-        for action in ACTION_TYPES:
-            deck.append(generate_card(color, action))
-            deck.append(generate_card(color, action))
-
-    # Wild cards (no color)
     for _ in range(4):
-        deck.append(generate_card(None, "wild"))
-        deck.append(generate_card(None, "wild_draw_four"))
+        for value in WILD_VALUES:
+            deck.append({"color": "wild", "value": value})
 
-    return deck
-
-def shuffle_deck(deck):
     random.shuffle(deck)
     return deck
+
+
+def draw_cards(game, player_id, count):
+    for _ in range(count):
+        if not game["deck"]:
+            reshuffle(game)
+        game["hands"][player_id].append(game["deck"].pop())
+
+
+def reshuffle(game):
+    top = game["discard_pile"][-1]
+    game["deck"] = game["discard_pile"][:-1]
+    game["discard_pile"] = [top]
+    random.shuffle(game["deck"])
