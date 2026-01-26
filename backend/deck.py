@@ -2,7 +2,7 @@ import random
 
 COLORS = ["red", "yellow", "green", "blue"]
 VALUES = [str(i) for i in range(10)] + ["skip", "reverse", "draw_2"]
-WILD_VALUES = ["wild", "wild_draw_4"]
+WILD_VALUES = ["wild", "wild_draw_5"]
 
 
 def create_deck():
